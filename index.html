@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MentalMate + Gemini Chat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .chatbot-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 20px;
+  box-sizing: border-box;
+}
+
+.chatbox {
+  width: 45%;
+  box-sizing: border-box;
+  min-height: 600px;
+  background-color: #ffffff;
+  border: 2px solid #ccc;
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+
+    .chatbox h2 {
+      text-align: center;
+      margin-top: 0;
+    }
+
+    .chat-log, #assistant-output {
+      height: 350px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 10px;
+      margin: 15px 0;
+      border-radius: 6px;
+      background-color: #fafafa;
+    }
+
+    .message {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 8px;
+      max-width: 80%;
+    }
+
+    .user {
+      background: #cce5ff;
+      text-align: right;
+    }
+
+    .bot {
+      background: #d4edda;
+      text-align: left;
+    }
+
+    .input-box {
+      display: flex;
+      gap: 10px;
+    }
+
+    input[type="text"], #assistant-input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    button {
+      padding: 10px 14px;
+      background-color: royalblue;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    .btn-clear {
+      background: crimson;
+    }
+
+    iframe {
+      margin-top: 15px;
+      border-radius: 8px;
+      width: 100%;
+    }
+
+    .center-buttons {
+      text-align: center;
+      margin-top: 10px;
+    }
+
+  </style>
+</head>
+<body>
+
+  <div class="chatbot-container">
+
+    <!-- 🧠 MentalMate Chat -->
+    <div class="chatbox">
+      <h2>MentalMate Chat</h2>
+
+      <form method="POST">
+        {% csrf_token %}
+        <button class="btn-clear" name="clear_chat" value="true">🧹 Clear Chat</button>
+      </form>
+
+      <div class="center-buttons">
+        <button onclick="stopVoice()" class="btn-clear">🔇 Stop Voice</button>
+        <button onclick="resumeLastBotVoice()" style="background-color: green;">🔊 Start Voice</button>
+      </div>
+
+      <div class="chat-log">
+        {% for chat in chat_history %}
+  <div class="message user">{{ chat.user }}</div>
+  <div class="message bot" onclick="speak(`{{ chat.bot|safe|escapejs }}`)">
+    {{ chat.bot|safe }}
+  </div>
+{% endfor %}
+
+      </div>
+
+      <form method="POST" class="input-box">
+        {% csrf_token %}
+        <input type="text" name="user_text" placeholder="Type your thoughts..." required />
+        <button type="submit">Send</button>
+      </form>
+
+      {% if video_file %}
+        <h3>🎥 Helpful Video</h3>
+        <iframe height="200" src="{{ video_file }}" frameborder="0" allowfullscreen></iframe>
+      {% endif %}
+    </div>
+
+    <!-- 🤖 Gemini Assistant -->
+    <div class="chatbox">
+      <h2>AI Assistant</h2>
+
+      <div id="assistant-output"></div>
+
+      <div class="input-box">
+        <input type="text" id="assistant-input" placeholder="Ask the AI assistant..." />
+        <button onclick="sendToAssistant()">Ask</button>
+      </div>
+
+      <div class="center-buttons">
+        <button onclick="stopVoice()" class="btn-clear">🔇 Stop Voice</button>
+        <button onclick="resumeLastBotVoice()" style="background-color: green;">🔊 Start Voice</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ✅ Voice + Gemini Assistant Script -->
+  <script>
+    let lastBotText = "";
+    let lastUtterance = null;
+
+    function speak(text) {
+      stopVoice();
+      const speech = new SpeechSynthesisUtterance(text);
+      speech.lang = "en-US";
+      speech.pitch = 1;
+      speech.rate = 1;
+      speech.volume = 1;
+      const voices = speechSynthesis.getVoices();
+      const selectedVoice = voices.find(v => v.name.includes("Google")) || voices[0];
+      if (selectedVoice) speech.voice = selectedVoice;
+      lastUtterance = speech;
+      lastBotText = text;
+      speechSynthesis.speak(speech);
+    }
+
+    function stopVoice() {
+      speechSynthesis.cancel();
+    }
+
+    function resumeLastBotVoice() {
+      if (lastBotText) speak(lastBotText);
+    }
+  </script>
+  <script>
+    function speakAssistantBotReply(replyText) {
+      lastBotText = replyText;
+      speak(replyText);
+    }
+
+    function sendToAssistant() {
+      const input = document.getElementById("assistant-input").value;
+      const outputDiv = document.getElementById("assistant-output");
+      outputDiv.innerHTML += `<div class="message user"><b>You:</b> ${input}</div>`;
+
+      fetch("/gemini-assistant/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("csrftoken")
+        },
+        body: JSON.stringify({ message: input })
+      })
+      .then(res => res.json())
+      .then(data => {
+        outputDiv.innerHTML += `<div class="message bot" onclick="speakAssistantBotReply('${data.reply.replace(/'/g, "\\'")}')"><b>Assistant:</b> ${data.reply}</div>`;
+        speakAssistantBotReply(data.reply);
+      })
+      .catch(err => {
+        outputDiv.innerHTML += `<div class="message bot"><b>Error:</b> ${err.message}</div>`;
+      });
+
+      document.getElementById("assistant-input").value = "";
+    }
+
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== "") {
+        const cookies = document.cookie.split(";");
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === name + "=") {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+
+    window.addEventListener("DOMContentLoaded", function () {
+      const botMessages = document.querySelectorAll("#assistant-output .message.bot");
+      if (botMessages.length > 0) {
+        const lastBot = botMessages[botMessages.length - 1];
+        const text = lastBot.innerText || lastBot.textContent;
+        lastBotText = text.trim();
+        speak(lastBotText);
+      }
+    });
+  </script>
+
+</body>
+</html>
